@@ -25,24 +25,77 @@ if user_site and user_site not in sys.path:
 import cv2
 import numpy as np
 
+# ── Detección nativa de eventos de sesión Windows ──────────────────────
+try:
+    import threading
+    import win32con
+    import win32gui
+    import win32ts
+
+    WM_WTSSESSION_CHANGE = 0x2B1
+    WTS_SESSION_LOCK     = 0x7
+    WTS_SESSION_UNLOCK   = 0x8
+
+    class SessionWatcher:
+        """Escucha eventos de bloqueo/desbloqueo de Windows usando la API nativa."""
+        def __init__(self):
+            self._callbacks_unlock = []
+            self._callbacks_lock   = []
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
+
+        def on_unlock(self, fn):
+            self._callbacks_unlock.append(fn)
+
+        def on_lock(self, fn):
+            self._callbacks_lock.append(fn)
+
+        def _wnd_proc(self, hwnd, msg, wparam, lparam):
+            if msg == WM_WTSSESSION_CHANGE:
+                if wparam == WTS_SESSION_UNLOCK:
+                    for fn in self._callbacks_unlock:
+                        try: fn()
+                        except Exception: pass
+                elif wparam == WTS_SESSION_LOCK:
+                    for fn in self._callbacks_lock:
+                        try: fn()
+                        except Exception: pass
+            return win32gui.DefWindowProc(hwnd, msg, wparam, lparam)
+
+        def _run(self):
+            try:
+                wc = win32gui.WNDCLASS()
+                wc.lpfnWndProc  = self._wnd_proc
+                wc.lpszClassName = "SecurityCoreSW"
+                wc.hInstance    = win32gui.GetModuleHandle(None)
+                win32gui.RegisterClass(wc)
+                hwnd = win32gui.CreateWindow(
+                    wc.lpszClassName, "SecurityCoreSW",
+                    0, 0, 0, 0, 0, 0, 0, wc.hInstance, None
+                )
+                win32ts.WTSRegisterSessionNotification(hwnd, win32ts.NOTIFY_FOR_THIS_SESSION)
+                win32gui.PumpMessages()
+            except Exception:
+                pass
+
+    SESSION_WATCHER_DISPONIBLE = True
+
+except ImportError:
+    SESSION_WATCHER_DISPONIBLE = False
+# ─────────────────────────────────────────────────────────────────────────
+
 # ═══════════════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════
 
-UMBRAL_CONFIANZA = 70          # % mínimo para considerar rostro conocido (0-100)
-TIEMPO_NO_RECONOCIDO = 10      # Segundos antes de bloquear si no se reconoce
-TIEMPO_ESPERA_DESBLOQUEO = 2   # Segundos de espera tras desbloquear Windows
-
-# BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
+UMBRAL_CONFIANZA = 65
+TIEMPO_NO_RECONOCIDO = 20
+TIEMPO_ESPERA_DESBLOQUEO = 2
 
 if getattr(sys, 'frozen', False):
-    # Si está corriendo como .exe → carpeta donde está el ejecutable
     BASE_DIR = os.path.dirname(sys.executable)
 else:
-    # Si está corriendo como script normal → carpeta del archivo .py
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 
 DISTANCIA_MAX = 120
 ANCHO_VIDEO = 640
@@ -51,7 +104,6 @@ ANCHO_MOSTRAR = 500
 ALTO_MOSTRAR = 375
 ARCHIVO_LOG = "logs_security_core.txt"
 
-# Colores de la interfaz
 COLOR_FONDO = "#0a0a0f"
 COLOR_PANEL = "#13131f"
 COLOR_VERDE = "#00ff88"
@@ -70,6 +122,7 @@ def distancia_a_confianza(distancia: float) -> int:
 
 
 def escribir_log(texto):
+    """Escribe en el archivo de log solo si es un evento importante."""
     try:
         fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with open(ARCHIVO_LOG, "a", encoding="utf-8") as f:
@@ -80,7 +133,7 @@ def escribir_log(texto):
 
 def log_error(tag, exc_info=None):
     detalle = "".join(traceback.format_exception(*exc_info)) if exc_info else traceback.format_exc()
-    escribir_log(f" ERROR [{tag}]: {detalle}")
+    escribir_log(f"ERROR [{tag}]: {detalle}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -88,8 +141,6 @@ def log_error(tag, exc_info=None):
 # ═══════════════════════════════════════════════════════════════════════════
 
 class MenuPrincipal:
-    """Ventana principal de selección de módulo"""
-    
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Security Core DNN - Launcher")
@@ -98,7 +149,6 @@ class MenuPrincipal:
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self.salir)
         
-        # Centrar ventana
         self.root.update_idletasks()
         x = (self.root.winfo_screenwidth() // 2) - (550 // 2)
         y = (self.root.winfo_screenheight() // 2) - (480 // 2)
@@ -108,20 +158,15 @@ class MenuPrincipal:
         self.root.mainloop()
     
     def _crear_ui(self):
-        # Título principal
         frame_titulo = tk.Frame(self.root, bg=COLOR_FONDO, pady=20)
         frame_titulo.pack(fill="x")
         
         tk.Label(frame_titulo, text="SECURITY CORE DNN", 
                 font=("Consolas", 22, "bold"), fg=COLOR_VERDE, bg=COLOR_FONDO).pack()
-        
         tk.Label(frame_titulo, text="Sistema de Bloqueo Facial Inteligente", 
                 font=("Consolas", 10), fg="#888888", bg=COLOR_FONDO).pack(pady=(5, 0))
-        
-        # Separador
         tk.Frame(self.root, bg=COLOR_VERDE, height=2, width=400).pack(pady=10)
         
-        # Estado del sistema
         frame_estado = tk.Frame(self.root, bg=COLOR_PANEL, padx=20, pady=15)
         frame_estado.pack(fill="x", padx=30, pady=10)
         
@@ -147,68 +192,37 @@ class MenuPrincipal:
                 text=f"Umbral: {UMBRAL_CONFIANZA}% | Timeout: {TIEMPO_NO_RECONOCIDO}s | Espera desbloqueo: {TIEMPO_ESPERA_DESBLOQUEO}s",
                 font=("Consolas", 8), fg="#666666", bg=COLOR_PANEL).pack(anchor="w", pady=(5, 0))
         
-        # Botones de módulos
         frame_botones = tk.Frame(self.root, bg=COLOR_FONDO, pady=20)
         frame_botones.pack(expand=True)
         
-        # Botón: MODO MONITOREO
-        btn_monitoreo = tk.Button(
-            frame_botones, 
-            text="🔒  INICIAR MONITOREO\n(Reconocimiento en tiempo real)",
-            command=self.iniciar_monitoreo,
-            bg="#003580", fg="white",
-            font=("Consolas", 12, "bold"),
-            width=40, height=3,
-            relief="flat", cursor="hand2",
-            activebackground="#004aaa", activeforeground="white"
-        )
-        btn_monitoreo.pack(pady=8)
-        
+        tk.Button(frame_botones, text="🔒  INICIAR MONITOREO\n(Reconocimiento en tiempo real)",
+                 command=self.iniciar_monitoreo, bg="#003580", fg="white",
+                 font=("Consolas", 12, "bold"), width=40, height=3,
+                 relief="flat", cursor="hand2").pack(pady=8)
         tk.Label(frame_botones, text="Bloquea el PC si no detecta tu rostro", 
                 font=("Arial", 8), fg="#888888", bg=COLOR_FONDO).pack()
         
-        # Separador pequeño
         tk.Frame(frame_botones, bg="#222222", height=1, width=300).pack(pady=15)
         
-        # Botón: MODO ENTRENAMIENTO
-        btn_entrenamiento = tk.Button(
-            frame_botones, 
-            text="📸  ENTRENAR ROSTRO\n(Capturar muestras faciales)",
-            command=self.iniciar_entrenamiento,
-            bg="#1a5c1a", fg="white",
-            font=("Consolas", 12, "bold"),
-            width=40, height=3,
-            relief="flat", cursor="hand2",
-            activebackground="#228822", activeforeground="white"
-        )
-        btn_entrenamiento.pack(pady=8)
-        
+        tk.Button(frame_botones, text="📸  ENTRENAR ROSTRO\n(Capturar muestras faciales)",
+                 command=self.iniciar_entrenamiento, bg="#1a5c1a", fg="white",
+                 font=("Consolas", 12, "bold"), width=40, height=3,
+                 relief="flat", cursor="hand2").pack(pady=8)
         tk.Label(frame_botones, text="Captura tu rostro en diferentes ángulos para mejorar precisión", 
                 font=("Arial", 8), fg="#888888", bg=COLOR_FONDO).pack()
         
-        # Pie
         frame_pie = tk.Frame(self.root, bg=COLOR_FONDO, pady=15)
         frame_pie.pack(side="bottom", fill="x")
-        
         tk.Label(frame_pie, text="© 2024 Ing. Elíasib Cadena M. | Security Core DNN v2.0", 
                 font=("Consolas", 7), fg="#555555", bg=COLOR_FONDO).pack()
-        
-        btn_salir = tk.Button(
-            frame_pie, text="✕  SALIR", command=self.salir,
-            bg="#8B0000", fg="white",
-            font=("Consolas", 10, "bold"),
-            width=15, relief="flat", cursor="hand2"
-        )
-        btn_salir.pack(pady=5)
+        tk.Button(frame_pie, text="✕  SALIR", command=self.salir,
+                 bg="#8B0000", fg="white", font=("Consolas", 10, "bold"),
+                 width=15, relief="flat", cursor="hand2").pack(pady=5)
     
     def iniciar_monitoreo(self):
-        """Cierra el menú y abre el módulo de monitoreo"""
-        self.root.withdraw()  # Oculta el menú en lugar de destruirlo
-        
-        # Crear nueva ventana para el monitor
+        self.root.withdraw()
         ventana_monitor = tk.Toplevel()
         ventana_monitor.protocol("WM_DELETE_WINDOW", lambda: self._volver_al_menu(ventana_monitor))
-        
         try:
             app = MonitorFacial(ventana_monitor, callback_volver=lambda: self._volver_al_menu(ventana_monitor))
         except Exception as e:
@@ -217,12 +231,9 @@ class MenuPrincipal:
             self._volver_al_menu(ventana_monitor)
     
     def iniciar_entrenamiento(self):
-        """Cierra el menú y abre el módulo de entrenamiento"""
         self.root.withdraw()
-        
         ventana_entrenamiento = tk.Toplevel()
         ventana_entrenamiento.protocol("WM_DELETE_WINDOW", lambda: self._volver_al_menu(ventana_entrenamiento))
-        
         try:
             app = Registrador(ventana_entrenamiento, callback_volver=lambda: self._volver_al_menu(ventana_entrenamiento))
         except Exception as e:
@@ -231,18 +242,17 @@ class MenuPrincipal:
             self._volver_al_menu(ventana_entrenamiento)
     
     def _volver_al_menu(self, ventana_hija):
-        """Destruye la ventana hija y muestra el menú principal"""
         try:
             ventana_hija.destroy()
         except Exception:
             pass
-        self.root.deiconify()  # Muestra el menú de nuevo
-        # Actualizar estado
+        self.root.deiconify()
         for widget in self.root.winfo_children():
             widget.destroy()
         self._crear_ui()
     
     def salir(self):
+        escribir_log("Sistema cerrado por usuario")
         self.root.destroy()
         sys.exit(0)
 
@@ -260,21 +270,30 @@ class MonitorFacial:
         self.window.configure(bg="#111111")
         self.window.minsize(400, 480)
 
-        # Estado del sistema
         self.cap = None
         self.net = None
         self.recognizer = None
         self.frame_actual = None
         
-        # Control de detección
         self.confianza_minima_dnn = 0.5
         self.tiempo_sin_reconocer = None
         self.en_pausa = False
         self.esperando_desbloqueo = False
         self.tiempo_desbloqueo = None
         self.bloqueo_activo = False
+        self._unlock_nativo_detectado = False
 
-        escribir_log(f"🔒 MÓDULO MONITOREO INICIADO | Umbral: {UMBRAL_CONFIANZA}% | Timeout: {TIEMPO_NO_RECONOCIDO}s")
+        escribir_log("Monitoreo iniciado")
+
+        if SESSION_WATCHER_DISPONIBLE:
+            try:
+                self._session_watcher = SessionWatcher()
+                self._session_watcher.on_unlock(self._al_desbloquear_nativo)
+                self._session_watcher.on_lock(self._al_bloquear_nativo)
+            except Exception:
+                self._session_watcher = None
+        else:
+            self._session_watcher = None
 
         if not self._cargar_recursos():
             self.window.destroy()
@@ -282,11 +301,11 @@ class MonitorFacial:
                 self.callback_volver()
             return
 
-        temp_label = tk.Label(window, text="INICIANDO SISTEMA...\nCargando red neuronal", 
+        temp_label = tk.Label(window, text="INICIANDO SISTEMA...", 
                              font=("Consolas", 12, "bold"), fg="#00ff88", bg="#111111")
         temp_label.pack(expand=True)
         window.update()
-        time.sleep(1.5)
+        time.sleep(1)
         temp_label.destroy()
 
         if not self._iniciar_camara():
@@ -302,31 +321,23 @@ class MonitorFacial:
         try:
             modelo_path = os.path.join(BASE_DIR, "modelo_rostro.yml")
             if not os.path.exists(modelo_path):
-                escribir_log(" ERROR: No se encuentra modelo_rostro.yml")
-                messagebox.showerror("Error", 
-                    "No se encuentra 'modelo_rostro.yml'.\n\n"
-                    "Ejecute primero el ENTRENAMIENTO desde el menú principal.")
+                escribir_log("ERROR: No se encuentra modelo_rostro.yml")
+                messagebox.showerror("Error", "No se encuentra 'modelo_rostro.yml'.\nEjecute primero el ENTRENAMIENTO.")
                 return False
 
             self.recognizer = cv2.face.LBPHFaceRecognizer_create()
             self.recognizer.read(modelo_path)
-            escribir_log(" ✓ Modelo facial cargado")
 
             prototxt_path = os.path.join(BASE_DIR, "deploy.prototxt")
             model_path = os.path.join(BASE_DIR, "res10_300x300_ssd_iter_140000_fp16.caffemodel")
             
             if not os.path.exists(prototxt_path) or not os.path.exists(model_path):
-                escribir_log(" ERROR: Archivos DNN no encontrados")
-                messagebox.showerror("Error", 
-                    "Faltan archivos del detector DNN:\n\n"
-                    "- deploy.prototxt\n"
-                    "- res10_300x300_ssd_iter_140000_fp16.caffemodel")
+                escribir_log("ERROR: Archivos DNN no encontrados")
+                messagebox.showerror("Error", "Faltan archivos del detector DNN.")
                 return False
             
             self.net = cv2.dnn.readNetFromCaffe(prototxt_path, model_path)
-            escribir_log(" ✓ Red neuronal DNN cargada")
             return True
-            
         except Exception as e:
             log_error("cargar_recursos")
             messagebox.showerror("Error", f"Error al cargar recursos:\n{e}")
@@ -335,20 +346,17 @@ class MonitorFacial:
     def _iniciar_camara(self):
         try:
             if self.cap is not None:
-                try:
-                    self.cap.release()
-                except Exception:
-                    pass
+                try: self.cap.release()
+                except Exception: pass
                 self.cap = None
             
             self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
             if not self.cap.isOpened():
-                escribir_log(" ERROR: No se pudo abrir la camara")
+                escribir_log("ERROR: No se pudo abrir la camara")
                 messagebox.showerror("Error", "No se pudo acceder a la camara.")
                 return False
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, ANCHO_VIDEO)
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, ALTO_VIDEO)
-            escribir_log(" ✓ Camara iniciada")
             return True
         except Exception as e:
             log_error("iniciar_camara")
@@ -360,35 +368,20 @@ class MonitorFacial:
             return []
             
         (h, w) = frame.shape[:2]
-        
-        blob = cv2.dnn.blobFromImage(
-            cv2.resize(frame, (300, 300)), 
-            1.0, (300, 300), 
-            (104.0, 177.0, 123.0)
-        )
-        
+        blob = cv2.dnn.blobFromImage(cv2.resize(frame, (300, 300)), 1.0, (300, 300), (104.0, 177.0, 123.0))
         self.net.setInput(blob)
         detecciones = self.net.forward()
         
         rostros = []
         for i in range(detecciones.shape[2]):
             confianza = detecciones[0, 0, i, 2]
-            
             if confianza > self.confianza_minima_dnn:
                 box = detecciones[0, 0, i, 3:7] * np.array([w, h, w, h])
                 (x, y, x2, y2) = box.astype("int")
-                
-                x = max(0, x)
-                y = max(0, y)
-                x2 = min(w, x2)
-                y2 = min(h, y2)
-                
+                x, y = max(0, x), max(0, y)
+                x2, y2 = min(w, x2), min(h, y2)
                 if x2 > x and y2 > y:
-                    rostros.append({
-                        'x': x, 'y': y, 
-                        'w': x2 - x, 'h': y2 - y,
-                        'confianza': confianza
-                    })
+                    rostros.append({'x': x, 'y': y, 'w': x2 - x, 'h': y2 - y, 'confianza': confianza})
         
         rostros.sort(key=lambda r: r['confianza'], reverse=True)
         return rostros
@@ -423,29 +416,31 @@ class MonitorFacial:
         tk.Button(frame_btns, text=" PAUSAR", command=self.pausar, 
                  bg="#f39c12", fg="white", font=("Arial", 9, "bold"), 
                  width=12, relief="flat").pack(side="left", padx=3)
-
         tk.Button(frame_btns, text=" REANUDAR", command=self.reanudar, 
                  bg="#27ae60", fg="white", font=("Arial", 9, "bold"), 
                  width=12, relief="flat").pack(side="left", padx=3)
-
         tk.Button(frame_btns, text=" VOLVER AL MENÚ", command=self.volver_menu, 
                  bg="#003580", fg="white", font=("Arial", 9, "bold"), 
                  width=15, relief="flat").pack(side="left", padx=3)
 
     def volver_menu(self):
-        """Vuelve al menú principal"""
         self._cerrar_camara()
-        escribir_log(" Volviendo al menú principal")
         self.window.destroy()
         if self.callback_volver:
             self.callback_volver()
+
+    def _al_desbloquear_nativo(self):
+        self._unlock_nativo_detectado = True
+
+    def _al_bloquear_nativo(self, *_):
+        pass
 
     def bloquear_pc(self):
         if self.bloqueo_activo:
             return
             
         self.bloqueo_activo = True
-        escribir_log("🔒 BLOQUEO DEL SISTEMA - Rostro no reconocido")
+        escribir_log("BLOQUEO DEL SISTEMA - Rostro no reconocido")
         
         self.lbl_estado.config(text="¡BLOQUEO ACTIVADO!", fg="#ff0000")
         self.lbl_contador.config(text="🔒", font=("Consolas", 36, "bold"))
@@ -454,7 +449,6 @@ class MonitorFacial:
         time.sleep(1.5)
         
         self._cerrar_camara()
-        
         self.lbl_video.configure(image='', 
                                 text="PC BLOQUEADO\n\nCuando desbloquee Windows\nel sistema se reactivará automáticamente", 
                                 fg="#ff4444", font=("Consolas", 12, "bold"), bg="#111111")
@@ -476,15 +470,16 @@ class MonitorFacial:
         self.lbl_estado.config(text="SISTEMA PAUSADO", fg="#f39c12")
         self.lbl_contador.config(text="⏸", font=("Consolas", 28, "bold"))
         self.lbl_confianza.config(text="Confianza: ---")
-        escribir_log("⏸ Sistema pausado por usuario")
+        escribir_log("Sistema pausado por usuario")
 
     def reanudar(self):
-        escribir_log("▶ Sistema reanudado")
+        escribir_log("Sistema reanudado")
         self.en_pausa = False
         self.esperando_desbloqueo = False
         self.bloqueo_activo = False
         self.tiempo_sin_reconocer = None
         self.tiempo_desbloqueo = None
+        self._unlock_nativo_detectado = False
         
         if self._iniciar_camara():
             self.lbl_estado.config(text="SISTEMA ACTIVO", fg="#00ff88")
@@ -496,10 +491,8 @@ class MonitorFacial:
 
     def _cerrar_camara(self):
         if self.cap:
-            try:
-                self.cap.release()
-            except Exception:
-                pass
+            try: self.cap.release()
+            except Exception: pass
             self.cap = None
 
     def actualizar_frame(self):
@@ -513,13 +506,18 @@ class MonitorFacial:
         ahora = time.time()
 
         if self.esperando_desbloqueo:
-            if self._esta_bloqueado():
+            flag_nativo  = self._unlock_nativo_detectado
+            poll_result  = self._esta_bloqueado()
+            desbloqueado = flag_nativo or not poll_result
+            self._unlock_nativo_detectado = False
+
+            if not desbloqueado:
                 self.window.after(2000, self.actualizar_frame)
                 return
             else:
                 if self.tiempo_desbloqueo is None:
                     self.tiempo_desbloqueo = ahora
-                    escribir_log(f" Windows desbloqueado - esperando {TIEMPO_ESPERA_DESBLOQUEO}s para reanudar")
+                    escribir_log("Windows desbloqueado - reactivando sistema...")
                     self.lbl_estado.config(text=f"DESBLOQUEADO - Reactivando en {TIEMPO_ESPERA_DESBLOQUEO}s...", 
                                           fg="#f39c12")
                 
@@ -528,12 +526,11 @@ class MonitorFacial:
                 
                 if segundos_faltantes > 0:
                     self.lbl_contador.config(text=str(segundos_faltantes), 
-                                            fg="#f39c12", 
-                                            font=("Consolas", 28, "bold"))
+                                            fg="#f39c12", font=("Consolas", 28, "bold"))
                     self.window.after(500, self.actualizar_frame)
                     return
                 
-                escribir_log("✅ Sistema reactivado después del desbloqueo")
+                escribir_log("Sistema reactivado después del desbloqueo")
                 self.reanudar()
                 
         if self.en_pausa and not self.esperando_desbloqueo:
@@ -556,7 +553,6 @@ class MonitorFacial:
         frame = cv2.flip(frame, 1)
         self.frame_actual = frame.copy()
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        
         rostros = self.detectar_rostro_dnn(frame)
 
         rostro_reconocido = False
@@ -585,7 +581,6 @@ class MonitorFacial:
                         cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
                         cv2.putText(frame, f"NO {conf}%", (x, y - 10),
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-                        
                 except Exception:
                     continue
 
@@ -611,23 +606,19 @@ class MonitorFacial:
             
             if segundos_restantes > 0:
                 if segundos_restantes <= 3:
-                    color = "#ff0000"
-                    tamaño = 36
+                    color, tamaño = "#ff0000", 36
                 elif segundos_restantes <= 5:
-                    color = "#ff4444"
-                    tamaño = 32
+                    color, tamaño = "#ff4444", 32
                 else:
-                    color = "#ffaa00"
-                    tamaño = 28
+                    color, tamaño = "#ffaa00", 28
                     
-                self.lbl_contador.config(text=str(segundos_restantes), 
-                                        fg=color, 
+                self.lbl_contador.config(text=str(segundos_restantes), fg=color, 
                                         font=("Consolas", tamaño, "bold"))
             else:
-                self.lbl_contador.config(text="¡BLOQUEO!", fg="#ff0000", 
-                                        font=("Consolas", 36, "bold"))
+                self.lbl_contador.config(text="¡BLOQUEO!", fg="#ff0000", font=("Consolas", 36, "bold"))
                 self.window.update()
                 self.bloquear_pc()
+                self.window.after(2000, self.actualizar_frame)
                 return
 
         cv2.putText(frame, f"DNN | Umbral: {UMBRAL_CONFIANZA}%", 
@@ -637,7 +628,6 @@ class MonitorFacial:
         imgtk = ImageTk.PhotoImage(image=img)
         self.lbl_video.imgtk = imgtk
         self.lbl_video.configure(image=imgtk)
-        
         self.window.after(15, self.actualizar_frame)
 
     def _esta_bloqueado(self):
@@ -670,8 +660,8 @@ class Registrador:
         self.window.minsize(550, 600)
 
         self.net = cv2.dnn.readNetFromCaffe(
-            "deploy.prototxt",
-            "res10_300x300_ssd_iter_140000_fp16.caffemodel"
+            os.path.join(BASE_DIR, "deploy.prototxt"),
+            os.path.join(BASE_DIR, "res10_300x300_ssd_iter_140000_fp16.caffemodel")
         )
         self.confianza_minima = 0.5
         
@@ -685,11 +675,8 @@ class Registrador:
 
         self.muestras = []
         self.frame_actual = None
-        
         MIN_FOTOS_RECOMENDADAS = 15
-        CANTIDAD_SUGERENCIAS = 25
 
-        # UI
         tk.Label(window, text="ENTRENAMIENTO DE ROSTRO", 
                 font=("Consolas", 16, "bold"), fg="#00ff88", bg="#111111").pack(pady=(10, 5))
 
@@ -699,130 +686,85 @@ class Registrador:
         frame_info = tk.Frame(window, bg="#1a1a2e", pady=5)
         frame_info.pack(fill="x", padx=10)
 
-        self.lbl_progreso = tk.Label(
-            frame_info, 
+        self.lbl_progreso = tk.Label(frame_info, 
             text=f"Fotos capturadas: 0 (Mínimo recomendado: 15)",
-            font=("Consolas", 10, "bold"), fg="#ffaa00", bg="#1a1a2e"
-        )
+            font=("Consolas", 10, "bold"), fg="#ffaa00", bg="#1a1a2e")
         self.lbl_progreso.pack(pady=2)
 
-        self.lbl_calidad = tk.Label(
-            frame_info,
-            text="Calidad: ---",
-            font=("Consolas", 9), fg="#888888", bg="#1a1a2e"
-        )
+        self.lbl_calidad = tk.Label(frame_info, text="Calidad: ---",
+            font=("Consolas", 9), fg="#888888", bg="#1a1a2e")
         self.lbl_calidad.pack()
 
-        self.lbl_instrucciones = tk.Label(
-            window,
+        self.lbl_instrucciones = tk.Label(window,
             text="📸 Presione CAPTURAR para cada pose\nPuede tomar CUANTAS fotos desee para mejorar precisión",
-            font=("Arial", 11, "bold"), fg="#00aaff", bg="#111111", justify="center"
-        )
+            font=("Arial", 11, "bold"), fg="#00aaff", bg="#111111", justify="center")
         self.lbl_instrucciones.pack(pady=8)
 
-        self.lbl_sugerencia = tk.Label(
-            window,
-            text="Sugerencia: Frente neutral",
-            font=("Consolas", 11), fg="#f39c12", bg="#111111"
-        )
+        self.lbl_sugerencia = tk.Label(window, text="Sugerencia: Frente neutral",
+            font=("Consolas", 11), fg="#f39c12", bg="#111111")
         self.lbl_sugerencia.pack(pady=2)
 
         frame_btns = tk.Frame(window, bg="#111111")
         frame_btns.pack(pady=8)
 
-        self.btn_capturar = tk.Button(
-            frame_btns, text="📸  CAPTURAR",
-            command=self.capturar_manual,
-            bg="#1a7a1a", fg="white",
-            font=("Arial", 13, "bold"),
-            width=16, height=2,
-            relief="flat", cursor="hand2"
-        )
+        self.btn_capturar = tk.Button(frame_btns, text="📸  CAPTURAR",
+            command=self.capturar_manual, bg="#1a7a1a", fg="white",
+            font=("Arial", 13, "bold"), width=16, height=2, relief="flat", cursor="hand2")
         self.btn_capturar.pack(side="left", padx=5)
 
-        self.btn_deshacer = tk.Button(
-            frame_btns, text="↩ Deshacer",
-            command=self.deshacer_ultima,
-            bg="#8B0000", fg="white",
-            font=("Arial", 10),
-            width=10, relief="flat", cursor="hand2"
-        )
+        self.btn_deshacer = tk.Button(frame_btns, text="↩ Deshacer",
+            command=self.deshacer_ultima, bg="#8B0000", fg="white",
+            font=("Arial", 10), width=10, relief="flat", cursor="hand2")
         self.btn_deshacer.pack(side="left", padx=5)
 
         frame_btns2 = tk.Frame(window, bg="#111111")
         frame_btns2.pack(pady=5)
 
-        self.btn_guardar = tk.Button(
-            frame_btns2, text="💾  Guardar Modelo",
-            command=self.finalizar_entrenamiento,
-            bg="#003580", fg="white",
-            font=("Arial", 11, "bold"),
-            width=16, relief="flat", cursor="hand2", state="disabled"
-        )
+        self.btn_guardar = tk.Button(frame_btns2, text="💾  Guardar Modelo",
+            command=self.finalizar_entrenamiento, bg="#003580", fg="white",
+            font=("Arial", 11, "bold"), width=16, relief="flat", cursor="hand2", state="disabled")
         self.btn_guardar.pack(side="left", padx=5)
 
-        self.btn_auto = tk.Button(
-            frame_btns2, text="⚡ Auto-Captura (5)",
-            command=self.auto_captura,
-            bg="#6c3483", fg="white",
-            font=("Arial", 10),
-            width=14, relief="flat", cursor="hand2"
-        )
+        self.btn_auto = tk.Button(frame_btns2, text="⚡ Auto-Captura (5)",
+            command=self.auto_captura, bg="#6c3483", fg="white",
+            font=("Arial", 10), width=14, relief="flat", cursor="hand2")
         self.btn_auto.pack(side="left", padx=5)
 
-        tk.Button(
-            window, text="↩ VOLVER AL MENÚ", command=self.volver_menu,
-            bg="#c0392b", fg="white",
-            font=("Arial", 9, "bold"),
-            width=18, relief="flat", cursor="hand2"
-        ).pack(pady=8)
+        tk.Button(window, text="↩ VOLVER AL MENÚ", command=self.volver_menu,
+            bg="#c0392b", fg="white", font=("Arial", 9, "bold"),
+            width=18, relief="flat", cursor="hand2").pack(pady=8)
 
         tk.Label(window, 
-                text="💡 Tome fotos en diferentes ángulos, distancias e iluminaciones\n"
-                     "Cuantas más muestras, mejor será el reconocimiento",
-                font=("Arial", 8), fg="#666666", bg="#111111", justify="center"
-        ).pack(pady=5)
+            text="💡 Tome fotos en diferentes ángulos, distancias e iluminaciones\n"
+                 "Cuantas más muestras, mejor será el reconocimiento",
+            font=("Arial", 8), fg="#666666", bg="#111111", justify="center").pack(pady=5)
 
         self.sugerencias = [
-            "Frente neutral mirando a cámara",
-            "Sonría ligeramente",
-            "Sonría ampliamente",
-            "Gire cabeza 15° a la derecha",
-            "Gire cabeza 30° a la derecha (perfil parcial)",
-            "Gire cabeza 15° a la izquierda",
-            "Gire cabeza 30° a la izquierda (perfil parcial)",
-            "Incline cabeza hacia arriba",
-            "Incline cabeza hacia abajo",
-            "Incline cabeza a la derecha",
-            "Incline cabeza a la izquierda",
-            "Acerque el rostro (30cm)",
-            "Aléjese de la cámara (brazo extendido)",
-            "Con lentes (si usa)",
-            "Sin lentes (si usa)",
-            "Con gorro o sombrero",
-            "Expresión seria",
-            "Ceja levantada",
-            "Ojos cerrados suavemente",
-            "Mire hacia la esquina superior derecha",
-            "Mire hacia la esquina superior izquierda",
-            "Mire hacia abajo a la derecha",
-            "Mire hacia abajo a la izquierda",
-            "Media sonrisa lateral",
-            "Cualquier expresión natural"
+            "Frente neutral", "Sonría ligeramente", "Sonría ampliamente",
+            "Gire cabeza 15° derecha", "Gire cabeza 30° derecha",
+            "Gire cabeza 15° izquierda", "Gire cabeza 30° izquierda",
+            "Incline cabeza arriba", "Incline cabeza abajo",
+            "Incline cabeza derecha", "Incline cabeza izquierda",
+            "Acerque el rostro", "Aléjese de la cámara",
+            "Con lentes (si usa)", "Sin lentes (si usa)",
+            "Con gorro", "Expresión seria", "Ceja levantada",
+            "Ojos cerrados", "Mire arriba derecha", "Mire arriba izquierda",
+            "Mire abajo derecha", "Mire abajo izquierda",
+            "Media sonrisa lateral", "Cualquier expresión natural"
         ]
 
         self.actualizar_video()
 
     def _cargar_modelo_existente(self):
-        if os.path.exists("modelo_rostro.yml"):
+        modelo_path = os.path.join(BASE_DIR, "modelo_rostro.yml")
+        if os.path.exists(modelo_path):
             try:
-                self.recognizer.read("modelo_rostro.yml")
+                self.recognizer.read(modelo_path)
                 respuesta = messagebox.askyesno(
                     "Modelo Existente",
                     "Se encontró 'modelo_rostro.yml'.\n\n"
-                    "¿Desea CONTINUAR el entrenamiento\n"
-                    "añadiendo más fotos a este modelo?\n\n"
-                    "• 'Sí': Sus nuevas fotos se sumarán al modelo existente\n"
+                    "¿Desea CONTINUAR el entrenamiento añadiendo más fotos?\n\n"
+                    "• 'Sí': Nuevas fotos se sumarán al modelo\n"
                     "• 'No': Empezará desde cero"
                 )
                 if not respuesta:
@@ -831,7 +773,6 @@ class Registrador:
                 self.recognizer = cv2.face.LBPHFaceRecognizer_create()
 
     def volver_menu(self):
-        """Vuelve al menú principal"""
         self.on_closing()
         self.window.destroy()
         if self.callback_volver:
@@ -840,38 +781,20 @@ class Registrador:
     def detectar_rostro_dnn(self, frame):
         if self.net is None:
             return []
-            
         (h, w) = frame.shape[:2]
-        
-        blob = cv2.dnn.blobFromImage(
-            cv2.resize(frame, (300, 300)), 
-            1.0, (300, 300), 
-            (104.0, 177.0, 123.0)
-        )
-        
+        blob = cv2.dnn.blobFromImage(cv2.resize(frame, (300, 300)), 1.0, (300, 300), (104.0, 177.0, 123.0))
         self.net.setInput(blob)
         detecciones = self.net.forward()
-        
         rostros = []
         for i in range(detecciones.shape[2]):
             confianza = detecciones[0, 0, i, 2]
-            
             if confianza > self.confianza_minima:
                 box = detecciones[0, 0, i, 3:7] * np.array([w, h, w, h])
                 (x, y, x2, y2) = box.astype("int")
-                
-                x = max(0, x)
-                y = max(0, y)
-                x2 = min(w, x2)
-                y2 = min(h, y2)
-                
+                x, y = max(0, x), max(0, y)
+                x2, y2 = min(w, x2), min(h, y2)
                 if x2 > x and y2 > y:
-                    rostros.append({
-                        'x': x, 'y': y, 
-                        'w': x2 - x, 'h': y2 - y,
-                        'confianza': confianza
-                    })
-        
+                    rostros.append({'x': x, 'y': y, 'w': x2 - x, 'h': y2 - y, 'confianza': confianza})
         rostros.sort(key=lambda r: r['confianza'], reverse=True)
         return rostros
 
@@ -880,31 +803,19 @@ class Registrador:
         if ret:
             frame = cv2.flip(frame, 1)
             self.frame_actual = frame.copy()
-
             rostros = self.detectar_rostro_dnn(frame)
-            
             for rostro in rostros:
                 x, y, w, h = rostro['x'], rostro['y'], rostro['w'], rostro['h']
-                conf = rostro['confianza']
-                
                 cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                cv2.putText(frame, f"DNN: {conf:.0%}", (x, y - 10),
+                cv2.putText(frame, f"DNN: {rostro['confianza']:.0%}", (x, y - 10),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                
-                centro_x = x + w//2
-                centro_y = y + h//2
-                cv2.circle(frame, (centro_x, centro_y), 3, (255, 0, 0), -1)
-
-            n = len(self.muestras)
-            cv2.putText(frame, f"Muestras: {n}", (10, 25),
+            cv2.putText(frame, f"Muestras: {len(self.muestras)}", (10, 25),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-
             img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
             img = img.resize((500, 375), Image.Resampling.LANCZOS)
             imgtk = ImageTk.PhotoImage(image=img)
             self.lbl_video.imgtk = imgtk
             self.lbl_video.configure(image=imgtk)
-
         self.window.after(15, self.actualizar_video)
 
     def _actualizar_sugerencia(self):
@@ -918,58 +829,31 @@ class Registrador:
     def capturar_manual(self):
         if self.frame_actual is None:
             return
-
         gray = cv2.cvtColor(self.frame_actual, cv2.COLOR_BGR2GRAY)
         rostros = self.detectar_rostro_dnn(self.frame_actual)
-
         if len(rostros) == 0:
-            self.lbl_instrucciones.config(
-                text="⚠ No se detectó rostro. Reubíquese.",
-                fg="red"
-            )
+            self.lbl_instrucciones.config(text="⚠ No se detectó rostro. Reubíquese.", fg="red")
             return
-
         mejor_rostro = rostros[0]
         x, y, w, h = mejor_rostro['x'], mejor_rostro['y'], mejor_rostro['w'], mejor_rostro['h']
-        conf = mejor_rostro['confianza']
-        
         rostro = cv2.resize(gray[y:y+h, x:x+w], (200, 200))
         self.muestras.append(rostro)
-
         n = len(self.muestras)
         MIN_FOTOS = 15
-        
         if n >= MIN_FOTOS:
-            self.lbl_progreso.config(
-                text=f"✅ Fotos capturadas: {n} (Mínimo: {MIN_FOTOS}) ¡Excelente!",
-                fg="#00ff88"
-            )
+            self.lbl_progreso.config(text=f"✅ Fotos capturadas: {n} ¡Excelente!", fg="#00ff88")
             self.btn_guardar.config(state="normal", bg="#00aa55")
         else:
-            self.lbl_progreso.config(
-                text=f"Fotos capturadas: {n} / {MIN_FOTOS} mínimo",
-                fg="#ffaa00"
-            )
+            self.lbl_progreso.config(text=f"Fotos capturadas: {n} / {MIN_FOTOS} mínimo", fg="#ffaa00")
             if n >= 5:
                 self.btn_guardar.config(state="normal")
-        
-        self.lbl_calidad.config(
-            text=f"Calidad detección: {conf:.0%} | Tamaño rostro: {w}x{h}px"
-        )
-        self.lbl_instrucciones.config(
-            text=f"✅ Foto {n} guardada. ¡Siga capturando!",
-            fg="green"
-        )
-        
+        self.lbl_calidad.config(text=f"Calidad: {mejor_rostro['confianza']:.0%} | Tamaño: {w}x{h}px")
+        self.lbl_instrucciones.config(text=f"✅ Foto {n} guardada. ¡Siga capturando!", fg="green")
         self._actualizar_sugerencia()
 
     def auto_captura(self):
         self.btn_auto.config(state="disabled", text="Capturando...")
-        self.lbl_instrucciones.config(
-            text="⚡ Auto-captura en progreso... Cambie de pose lentamente",
-            fg="#9b59b6"
-        )
-        
+        self.lbl_instrucciones.config(text="⚡ Auto-captura en progreso... Cambie de pose lentamente", fg="#9b59b6")
         def capturar_automaticamente(contador=5):
             if contador > 0 and self.window.winfo_exists():
                 self.capturar_manual()
@@ -977,27 +861,16 @@ class Registrador:
                 self.window.after(1500, lambda: capturar_automaticamente(contador - 1))
             else:
                 self.btn_auto.config(state="normal", text="⚡ Auto-Captura (5)")
-                self.lbl_instrucciones.config(
-                    text=f"✅ Auto-captura completada. Total: {len(self.muestras)} fotos",
-                    fg="green"
-                )
-        
+                self.lbl_instrucciones.config(text=f"✅ Auto-captura completada. Total: {len(self.muestras)} fotos", fg="green")
         capturar_automaticamente()
 
     def deshacer_ultima(self):
         if self.muestras:
             self.muestras.pop()
             n = len(self.muestras)
-            self.lbl_progreso.config(
-                text=f"Fotos capturadas: {n} (última eliminada)",
-                fg="#ffaa00"
-            )
-            self.lbl_instrucciones.config(
-                text=f"↩ Última foto eliminada. Total: {n}.",
-                fg="orange"
-            )
+            self.lbl_progreso.config(text=f"Fotos capturadas: {n} (última eliminada)", fg="#ffaa00")
+            self.lbl_instrucciones.config(text=f"↩ Última foto eliminada. Total: {n}.", fg="orange")
             self._actualizar_sugerencia()
-            
             if n < 5:
                 self.btn_guardar.config(state="disabled", bg="#003580")
         else:
@@ -1005,43 +878,24 @@ class Registrador:
 
     def finalizar_entrenamiento(self):
         if len(self.muestras) < 5:
-            messagebox.showwarning("Pocas muestras", 
-                                  "Necesita al menos 5 fotos para entrenar.\n\n"
-                                  f"Actualmente tiene: {len(self.muestras)}")
+            messagebox.showwarning("Pocas muestras", f"Necesita al menos 5 fotos.\nActualmente tiene: {len(self.muestras)}")
             return
-
         if len(self.muestras) < 15:
-            continuar = messagebox.askyesno(
-                "Pocas muestras",
-                f"Solo tiene {len(self.muestras)} fotos.\n"
-                "Se recomiendan al menos 15.\n\n"
-                "¿Desea guardar de todos modos?"
-            )
-            if not continuar:
+            if not messagebox.askyesno("Pocas muestras", f"Solo tiene {len(self.muestras)} fotos. Se recomiendan 15.\n¿Guardar de todos modos?"):
                 return
-
         self.lbl_instrucciones.config(text="🔄 Entrenando modelo...", fg="blue")
         self.btn_guardar.config(state="disabled", text="Entrenando...")
         self.window.update()
-
         try:
             etiquetas = np.array([1] * len(self.muestras))
             self.recognizer.train(self.muestras, etiquetas)
-            self.recognizer.write("modelo_rostro.yml")
-            
-            messagebox.showinfo(
-                "✅ Modelo Guardado",
-                f"Entrenamiento completado exitosamente:\n\n"
-                f"📸 Fotos utilizadas: {len(self.muestras)}\n"
-                f"📁 Archivo: modelo_rostro.yml\n\n"
-                f"💡 Consejo: Si el reconocimiento no es preciso,\n"
-                f"   ejecute el entrenamiento de nuevo y añada\n"
-                f"   más fotos en ángulos diferentes."
-            )
+            self.recognizer.write(os.path.join(BASE_DIR, "modelo_rostro.yml"))
+            escribir_log(f"Modelo guardado con {len(self.muestras)} muestras")
+            messagebox.showinfo("✅ Modelo Guardado",
+                f"Entrenamiento completado:\n\n📸 Fotos: {len(self.muestras)}\n📁 Archivo: modelo_rostro.yml")
             self.volver_menu()
-            
         except Exception as e:
-            messagebox.showerror("Error", f"Error al entrenar el modelo:\n{e}")
+            messagebox.showerror("Error", f"Error al entrenar:\n{e}")
             self.btn_guardar.config(state="normal", text="💾  Guardar Modelo")
 
     def on_closing(self):
@@ -1050,7 +904,7 @@ class Registrador:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PUNTO DE ENTRADA PRINCIPAL
+# PUNTO DE ENTRADA
 # ═══════════════════════════════════════════════════════════════════════════
 
 def manejar_excepcion_global(exc_type, exc_value, exc_traceback):
@@ -1062,14 +916,5 @@ def manejar_excepcion_global(exc_type, exc_value, exc_traceback):
 
 if __name__ == "__main__":
     sys.excepthook = manejar_excepcion_global
-    
-    print("=" * 60)
-    print("  SECURITY CORE DNN - v2.0")
-    print("  Sistema de Bloqueo Facial Inteligente")
-    print("  Desarrollado por Ing. Elíasib Cadena M.")
-    print("=" * 60)
-    
-    escribir_log("🚀 Security Core DNN v2.0 INICIADO")
-    
-    # Iniciar el menú principal
+    escribir_log("Security Core DNN v2.0 INICIADO")
     MenuPrincipal()
