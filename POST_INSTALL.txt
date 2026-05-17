@@ -1,0 +1,27 @@
+╔══════════════════════════════════════════════════════════════════╗
+║              SECURITY CORE DNN - INSTALACIÓN COMPLETA           ║
+╚══════════════════════════════════════════════════════════════════╝
+
+¡Instalación exitosa! Siga estos pasos para comenzar:
+
+  1. ABRA la aplicación desde el acceso directo en su escritorio
+
+  2. SELECCIONE "ENTRENAR ROSTRO" (primero debe entrenar)
+     - Capture al menos 15 fotos en diferentes ángulos
+     - Guarde el modelo cuando termine
+
+  3. REINICIE la aplicación
+
+  4. SELECCIONE "INICIAR MONITOREO"
+     - El sistema bloqueará su PC si no detecta su rostro
+
+CONSEJOS:
+  • Más fotos de entrenamiento = mejor reconocimiento
+  • Asegúrese de tener buena iluminación
+  • Si no lo reconoce bien, vuelva a entrenar con más ángulos
+
+PROBLEMAS:
+  • Cámara no funciona: cierre apps como Zoom/Teams
+  • Bloqueos frecuentes: ajuste el umbral en el código fuente
+
+© 2024 Ing. Elíasib Cadena M.

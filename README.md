@@ -1,5 +1,16 @@
 # 🔒 Security Core DNN - Bloqueo Facial Inteligente
-
+# BLOQUEAR SESION WINDOWS POR ROSTRO IA
+Este proyecto lo he creado con el proposito de bloquear mi sesion del pc en caso de levantarme del puesto y no depender de el bloqueo temporal de windows ya que
+muchas veces como desarrolladores tenemos que leer la pantalla y estamos en el pc , pero Windows bloquea el pc sin tener en cuenta que lo estamos usando o si 
+nos levantamos deprisa y se nos olvida bloquear el pc y dejamos a largo plazo el bloqueo cualquiera puede usarlo, esta herramienta permite por iteneligencia artificial
+identificar si eres tu ya que tiene un espacio para entrenarla cuando eres tu y ademas tambie identifica si no estas en el puesto cuando sabe que no eres tu o que no 
+estas en el puesto en ese  momento bloquea la sesion de Windows, este programa no tiene salida a lared ni Wifi ni Ethernet no la requiere para su uso la ia es OFFLINE
+no tiene datos tuyos previos debes entrenarla en el momento de usarla aconsejo tomar minimo 30 fotos , la IA no envia tus datos a ningun lugar solo los guarda en la 
+carpeta donde esta isntalado y los puedes borrar en cualquier momento el archivo cuando esta entrenado se llama modelo_rostro.yml lo puedes borrar pero ya no reconocera
+tu rostro en esta version es necesario remplazar el exe cuando el programa ya esta isntalado por el que subi hoy 15 Mayo 2026 en la carpeta c porque no reconoce archivos
+apesar de que si los crea modelo_rostro.yml pero no los encuentra y es que no contemple que debia leer archivos externos cuando lo comprimi.
+si quieres crear tu propio exe el codigo esta en ejecutable.py puedes ajustar el humbral el tiempo de espera actual 30 s etc puedes modificar el codigo a tu antojo.
+lo usare y estare lanzado mejoras según vea como me funciona 
 **Sistema pasivo de bloqueo de PC basado en reconocimiento facial con Deep Learning**
 
 ![Python](https://img.shields.io/badge/Python-3.8+-blue?logo=python)
@@ -378,5 +389,7 @@ Interfaz web de monitoreo remoto
 Empaquetado como .exe portable
 
 Soporte para Linux/macOS
+crear exe
+python -m PyInstaller --onefile --windowed --name="IAFaceLock" --icon=icon.ico ejecutable.py
 
 <p align="center"> <b>Security Core DNN</b><br> <i>Protegiendo tu información, respetando tu tiempo</i><br><br> <sub>© 2024 Ing. Elíasib Cadena M. - Todos los derechos reservados</sub> </p> ```

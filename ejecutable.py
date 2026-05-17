@@ -33,7 +33,17 @@ UMBRAL_CONFIANZA = 70          # % mínimo para considerar rostro conocido (0-10
 TIEMPO_NO_RECONOCIDO = 10      # Segundos antes de bloquear si no se reconoce
 TIEMPO_ESPERA_DESBLOQUEO = 2   # Segundos de espera tras desbloquear Windows
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+if getattr(sys, 'frozen', False):
+    # Si está corriendo como .exe → carpeta donde está el ejecutable
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    # Si está corriendo como script normal → carpeta del archivo .py
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
 DISTANCIA_MAX = 120
 ANCHO_VIDEO = 640
 ALTO_VIDEO = 480

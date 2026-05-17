@@ -1,0 +1,118 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    SECURITY CORE DNN - v2.0                                ║
+║                 Sistema de Bloqueo Facial Inteligente                      ║
+║                   Desarrollado por Ing. Elíasib Cadena M.                  ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+                    ACUERDO DE LICENCIA DE SOFTWARE
+                    ================================
+
+Copyright (c) 2024 Ing. Elíasib Cadena M.
+Todos los derechos reservados.
+
+-------------------------------------------------------------------------------
+1. OTORGAMIENTO DE LICENCIA
+-------------------------------------------------------------------------------
+
+Se concede permiso, de forma gratuita, a cualquier persona que obtenga una 
+copia de este software y los archivos de documentación asociados (el 
+"Software"), para usar el Software sin restricciones, incluyendo, sin 
+limitación, los derechos de uso, copia, modificación, fusión, publicación y 
+distribución del Software, sujeto a las siguientes condiciones:
+
+-------------------------------------------------------------------------------
+2. CONDICIONES
+-------------------------------------------------------------------------------
+
+   a) El aviso de copyright anterior y este aviso de permiso se incluirán 
+      en todas las copias o partes sustanciales del Software.
+
+   b) No se permite el uso del nombre del autor ni los nombres de los 
+      contribuyentes para promocionar productos derivados de este software 
+      sin permiso previo por escrito.
+
+   c) El Software no podrá ser vendido sin el consentimiento expreso por 
+      escrito del autor.
+
+-------------------------------------------------------------------------------
+3. EXENCIÓN DE RESPONSABILIDAD
+-------------------------------------------------------------------------------
+
+EL SOFTWARE SE PROPORCIONA "TAL CUAL", SIN GARANTÍA DE NINGÚN TIPO, EXPRESA 
+O IMPLÍCITA, INCLUYENDO PERO NO LIMITADO A GARANTÍAS DE COMERCIALIZACIÓN, 
+IDONEIDAD PARA UN PROPÓSITO PARTICULAR Y NO INFRACCIÓN.
+
+EN NINGÚN CASO LOS AUTORES O TITULARES DE LOS DERECHOS DE AUTOR SERÁN 
+RESPONSABLES DE NINGUNA RECLAMACIÓN, DAÑOS U OTRAS RESPONSABILIDADES, YA SEA 
+EN UNA ACCIÓN DE CONTRATO, AGRAVIO O DE OTRO MODO, QUE SURJA DE, FUERA DE O 
+EN CONEXIÓN CON EL SOFTWARE O EL USO U OTRO TIPO DE ACCIONES EN EL SOFTWARE.
+
+-------------------------------------------------------------------------------
+4. USO PREVISTO
+-------------------------------------------------------------------------------
+
+Security Core DNN está diseñado como un sistema de seguridad pasivo para 
+estaciones de trabajo Windows. El autor no se hace responsable por:
+
+   a) Falsos positivos o negativos en el reconocimiento facial
+   b) Bloqueos no deseados del sistema
+   c) Pérdida de datos o interrupción del trabajo
+   d) Accesos no autorizados que el software no haya podido prevenir
+   e) Daños directos o indirectos derivados del uso del software
+
+-------------------------------------------------------------------------------
+5. PRIVACIDAD Y DATOS
+-------------------------------------------------------------------------------
+
+   a) Las imágenes capturadas por el sistema se almacenan LOCALMENTE en el 
+      equipo del usuario.
+
+   b) El software NO transmite imágenes, datos biométricos ni información 
+      personal a servidores externos.
+
+   c) El usuario es responsable de la custodia de los datos generados por 
+      el software (modelo facial, logs, imágenes de fallos).
+
+-------------------------------------------------------------------------------
+6. RESTRICCIONES
+-------------------------------------------------------------------------------
+
+Queda prohibido:
+
+   a) Usar el Software para actividades ilegales o no éticas
+   b) Modificar el Software para eludir sistemas de seguridad de terceros
+   c) Distribuir versiones modificadas sin incluir el código fuente
+   d) Usar el Software para vigilancia sin consentimiento
+
+-------------------------------------------------------------------------------
+7. TÉRMINOS DE TERMINACIÓN
+-------------------------------------------------------------------------------
+
+Esta licencia es efectiva hasta su terminación. Los derechos bajo esta 
+licencia terminarán automáticamente si usted no cumple con cualquiera de 
+sus términos y condiciones.
+
+-------------------------------------------------------------------------------
+8. CONTACTO
+-------------------------------------------------------------------------------
+
+Para consultas, permisos especiales o licencias comerciales:
+
+   Desarrollador: Ing. Elíasib Cadena M.
+   Proyecto: Security Core DNN
+   Repositorio: https://github.com/tuusuario/security-core-dnn
+
+-------------------------------------------------------------------------------
+9. ACEPTACIÓN
+-------------------------------------------------------------------------------
+
+Al instalar, copiar o usar este Software, usted acepta estar obligado por 
+los términos de esta Licencia. Si no está de acuerdo con los términos de 
+esta Licencia, no instale ni use el Software.
+
+-------------------------------------------------------------------------------
+
+              © 2024 Ing. Elíasib Cadena M. - Todos los derechos reservados
+              Security Core DNN - Sistema de Bloqueo Facial Inteligente
+
+===============================================================================
