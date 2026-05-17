@@ -100,8 +100,8 @@ except ImportError:
 # CONFIGURACIÓN GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════
 
-UMBRAL_CONFIANZA = 70          # % mínimo para considerar rostro conocido (0-100)
-TIEMPO_NO_RECONOCIDO = 10      # Segundos antes de bloquear si no se reconoce
+UMBRAL_CONFIANZA = 65          # % mínimo para considerar rostro conocido (0-100)
+TIEMPO_NO_RECONOCIDO = 20      # Segundos antes de bloquear si no se reconoce
 TIEMPO_ESPERA_DESBLOQUEO = 2   # Segundos de espera tras desbloquear Windows
 
 # BASE_DIR = os.path.dirname(os.path.abspath(__file__))

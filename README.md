@@ -390,6 +390,9 @@ Empaquetado como .exe portable
 
 Soporte para Linux/macOS
 crear exe
-python -m PyInstaller --onefile --windowed --name="IAFaceLock" --icon=icon.ico ejecutable.py
+
+    python.exe -m pip install pyinstaller
+
+    python -m PyInstaller --onefile --windowed --name="IAFaceLock" --icon=icon.ico ejecutable.py
 
 <p align="center"> <b>Security Core DNN</b><br> <i>Protegiendo tu información, respetando tu tiempo</i><br><br> <sub>© 2024 Ing. Elíasib Cadena M. - Todos los derechos reservados</sub> </p> ```
