@@ -278,10 +278,11 @@ class MenuPrincipal:
         
         # Crear nueva ventana para el monitor
         ventana_monitor = tk.Toplevel()
-        ventana_monitor.protocol("WM_DELETE_WINDOW", lambda: self._volver_al_menu(ventana_monitor))
         
         try:
             app = MonitorFacial(ventana_monitor, callback_volver=lambda: self._volver_al_menu(ventana_monitor))
+            # Delegar el cierre al método de MonitorFacial para que libere la cámara
+            ventana_monitor.protocol("WM_DELETE_WINDOW", app.volver_menu)
         except Exception as e:
             log_error("iniciar_monitoreo")
             messagebox.showerror("Error", f"Error al iniciar monitoreo:\n{e}")
@@ -314,6 +315,7 @@ class MenuPrincipal:
         self._crear_ui()
     
     def salir(self):
+        escribir_log("🚪 Aplicación cerrada por usuario")
         self.root.destroy()
         sys.exit(0)
 
@@ -522,10 +524,13 @@ class MonitorFacial:
                  width=15, relief="flat").pack(side="left", padx=3)
 
     def volver_menu(self):
-        """Vuelve al menú principal"""
+        """Vuelve al menú principal liberando todos los recursos"""
         self._cerrar_camara()
-        escribir_log(" Volviendo al menú principal")
-        self.window.destroy()
+        escribir_log("↩ Volviendo al menú principal")
+        try:
+            self.window.destroy()
+        except Exception:
+            pass
         if self.callback_volver:
             self.callback_volver()
 
@@ -544,11 +549,10 @@ class MonitorFacial:
 
     def bloquear_pc(self):
         if self.bloqueo_activo:
-            escribir_log("[DIAG][bloquear_pc] Llamado pero bloqueo_activo=True, ignorando")
             return
             
         self.bloqueo_activo = True
-        escribir_log("🔒 BLOQUEO DEL SISTEMA - Rostro no reconocido")
+        escribir_log("🔒 BLOQUEO ACTIVADO - Rostro no reconocido")
         
         self.lbl_estado.config(text="¡BLOQUEO ACTIVADO!", fg="#ff0000")
         self.lbl_contador.config(text="🔒", font=("Consolas", 36, "bold"))
@@ -564,13 +568,11 @@ class MonitorFacial:
         
         self.esperando_desbloqueo = True
         self.tiempo_desbloqueo = None
-        escribir_log(f"[DIAG][bloquear_pc] esperando_desbloqueo=True | SessionWatcher activo={self._session_watcher is not None}")
         
         try:
             ctypes.windll.user32.LockWorkStation()
-            escribir_log("[DIAG][bloquear_pc] LockWorkStation() ejecutado correctamente")
         except Exception as e:
-            escribir_log(f"[DIAG][bloquear_pc] ERROR en LockWorkStation(): {e}")
+            escribir_log(f"⚠ Error en LockWorkStation(): {e}")
             log_error("bloquear_pc")
 
     def pausar(self):
@@ -591,8 +593,7 @@ class MonitorFacial:
         self.bloqueo_activo = False
         self.tiempo_sin_reconocer = None
         self.tiempo_desbloqueo = None
-        self._unlock_nativo_detectado = False   # ── limpiar flag nativo
-        escribir_log("[DIAG][reanudar] Flags reseteados, iniciando cámara...")
+        self._unlock_nativo_detectado = False
         
         if self._iniciar_camara():
             self.lbl_estado.config(text="SISTEMA ACTIVO", fg="#00ff88")
@@ -621,38 +622,24 @@ class MonitorFacial:
         ahora = time.time()
 
         if self.esperando_desbloqueo:
-            # ── DIAGNÓSTICO: estado completo en cada tick mientras espera desbloqueo ──
             flag_nativo  = self._unlock_nativo_detectado
-            poll_result  = self._esta_bloqueado()   # True = sigue bloqueado
+            poll_result  = self._esta_bloqueado()
             desbloqueado = flag_nativo or not poll_result
             self._unlock_nativo_detectado = False
 
-            escribir_log(
-                f"[DIAG][esperando_desbloqueo] "
-                f"flag_nativo={flag_nativo} | "
-                f"_esta_bloqueado()={poll_result} | "
-                f"desbloqueado={desbloqueado} | "
-                f"tiempo_desbloqueo={'SET' if self.tiempo_desbloqueo else 'NONE'}"
-            )
-            # ─────────────────────────────────────────────────────────────────────────
-
             if not desbloqueado:
-                escribir_log("[DIAG] → PC sigue bloqueado, reintentando en 2s")
                 self.window.after(2000, self.actualizar_frame)
                 return
             else:
                 if self.tiempo_desbloqueo is None:
                     self.tiempo_desbloqueo = ahora
-                    escribir_log(
-                        f"[DIAG] → Desbloqueo detectado (vía {'evento nativo' if flag_nativo else 'polling'}). "
-                        f"Iniciando cuenta regresiva de {TIEMPO_ESPERA_DESBLOQUEO}s"
-                    )
+                    via = 'evento nativo' if flag_nativo else 'polling'
+                    escribir_log(f"🔓 Desbloqueo detectado (vía {via}). Reactivando en {TIEMPO_ESPERA_DESBLOQUEO}s...")
                     self.lbl_estado.config(text=f"DESBLOQUEADO - Reactivando en {TIEMPO_ESPERA_DESBLOQUEO}s...", 
                                           fg="#f39c12")
                 
-                tiempo_espera     = ahora - self.tiempo_desbloqueo
+                tiempo_espera      = ahora - self.tiempo_desbloqueo
                 segundos_faltantes = max(0, TIEMPO_ESPERA_DESBLOQUEO - int(tiempo_espera))
-                escribir_log(f"[DIAG] → Cuenta regresiva: {segundos_faltantes}s restantes")
                 
                 if segundos_faltantes > 0:
                     self.lbl_contador.config(text=str(segundos_faltantes), 
@@ -661,7 +648,7 @@ class MonitorFacial:
                     self.window.after(500, self.actualizar_frame)
                     return
                 
-                escribir_log("✅ Sistema reactivado después del desbloqueo → llamando reanudar()")
+                escribir_log("✅ Sistema reactivado tras desbloqueo")
                 self.reanudar()
                 
         if self.en_pausa and not self.esperando_desbloqueo:
@@ -756,9 +743,6 @@ class MonitorFacial:
                                         font=("Consolas", 36, "bold"))
                 self.window.update()
                 self.bloquear_pc()
-                # CORRECCIÓN: programar el siguiente tick para que el bucle
-                # siga corriendo y pueda detectar cuando se desbloquea Windows
-                escribir_log("[DIAG] Bucle reiniciado tras bloquear_pc(), esperando desbloqueo...")
                 self.window.after(2000, self.actualizar_frame)
                 return
 
@@ -777,20 +761,15 @@ class MonitorFacial:
             user32 = ctypes.windll.user32
             hdesk = user32.OpenInputDesktop(0, False, 0)
             if hdesk == 0:
-                escribir_log("[DIAG][_esta_bloqueado] OpenInputDesktop devolvió 0 → bloqueado=True")
                 return True
             name = ctypes.create_unicode_buffer(256)
             needed = ctypes.c_uint(0)
             if user32.GetUserObjectInformationW(hdesk, 2, name, 512, ctypes.byref(needed)):
                 user32.CloseDesktop(hdesk)
-                bloqueado = name.value != "Default"
-                escribir_log(f"[DIAG][_esta_bloqueado] Desktop='{name.value}' → bloqueado={bloqueado}")
-                return bloqueado
+                return name.value != "Default"
             user32.CloseDesktop(hdesk)
-            escribir_log("[DIAG][_esta_bloqueado] GetUserObjectInformationW falló → bloqueado=False")
             return False
-        except Exception as e:
-            escribir_log(f"[DIAG][_esta_bloqueado] EXCEPCIÓN: {e} → bloqueado=True")
+        except Exception:
             return True
 
 
